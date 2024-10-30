@@ -1,6 +1,7 @@
 import qualified Data.List
 import qualified Data.Array
 import qualified Data.Bits
+import qualified Data.Time.Clock as Clock
 
 -- PFL 2024/2025 Practical assignment 1
 
@@ -312,7 +313,6 @@ calculateTotalDistance roadMap (x:xs) = sumDistances xs x
 tspBruteForce :: RoadMap -> Path
 tspBruteForce = undefined 
 
-
 -- Some graphs to test your work
 gTest1 :: RoadMap
 gTest1 = [("7","6",1),("8","2",2),("6","5",2),("0","1",4),("2","5",4),("8","6",6),("2","3",7),("7","8",7),("0","7",8),("1","2",8),("3","4",9),("5","4",10),("1","7",11),("3","5",14)]
@@ -322,3 +322,165 @@ gTest2 = [("0","1",10),("0","2",15),("0","3",20),("1","2",35),("1","3",25),("2",
 
 gTest3 :: RoadMap -- unconnected graph
 gTest3 = [("0","1",4),("2","3",2)]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- Existing code remains unchanged above this line.
+
+-- | Helper Functions for Adjacency List Conversion and Representation
+-- |
+-- | We define functions to convert a RoadMap to an AdjList, which allows the original
+-- | functions to maintain their RoadMap arguments while internally using the more efficient AdjList.
+
+type AdjList = [(City, [(City, Distance)])]
+
+-- | roadMapToAdjList :: RoadMap -> AdjList
+-- | Converts a RoadMap to an adjacency list representation.
+roadMapToAdjList :: RoadMap -> AdjList
+roadMapToAdjList roadMap = foldr addEdge [] roadMap
+  where
+    addEdge (c1, c2, d) adjList = addEdge' c1 c2 d (addEdge' c2 c1 d adjList)
+    addEdge' c1 c2 d [] = [(c1, [(c2, d)])]
+    addEdge' c1 c2 d ((city, neighbors):rest)
+        | city == c1 = (city, (c2, d):neighbors) : rest
+        | otherwise = (city, neighbors) : addEdge' c1 c2 d rest
+
+-- | adjacentList :: AdjList -> City -> [(City, Distance)]
+-- | Retrieves the neighboring cities and distances from the adjacency list.
+adjacentList :: AdjList -> City -> [(City, Distance)]
+adjacentList adjList city = case lookup city adjList of
+    Just neighbors -> neighbors
+    Nothing -> []
+
+-- | distanceList :: AdjList -> City -> City -> Maybe Distance
+-- | Retrieves the distance between two cities from the adjacency list.
+distanceList :: AdjList -> City -> City -> Maybe Distance
+distanceList adjList city1 city2 = lookup city2 (adjacentList adjList city1)
+
+-- | shortestPath :: RoadMap -> City -> City -> (Maybe Int, [Path])
+-- | Finds the shortest path between two cities using an adjacency list internally.
+shortestPath2 :: RoadMap -> City -> City -> (Maybe Int, [Path])
+shortestPath2 roadMap start end =
+    let adjList = roadMapToAdjList roadMap
+    in shortestPathList adjList start end
+
+-- | shortestPathList :: AdjList -> City -> City -> (Maybe Int, [Path])
+-- | Helper function for finding the shortest path using an adjacency list.
+shortestPathList :: AdjList -> City -> City -> (Maybe Int, [Path])
+shortestPathList adjList start end
+    | start == end = (Just 0, [[start]])
+    | otherwise =
+        let allPaths = dfsPathsList adjList start end [] 0 
+            distances = map snd allPaths
+        in if null distances
+            then (Nothing, [])
+            else 
+                let minDistance = minimum distances
+                    shortestPaths = [path | (path, dist) <- allPaths, dist == minDistance]
+                in (Just minDistance, shortestPaths)
+
+-- | dfsPathsList :: AdjList -> City -> City -> [City] -> Int -> [(Path, Int)]
+-- | Helper function to find all paths from start to end using DFS with an adjacency list.
+dfsPathsList :: AdjList -> City -> City -> [City] -> Int -> [(Path, Int)]
+dfsPathsList adjList current end visited currentDistance
+    | current `elem` visited = []
+    | current == end = [([end], currentDistance)]
+    | otherwise =
+        let newVisited = current : visited
+            neighbors = adjacentList adjList current
+            paths = [dfsPathsList adjList neighbor end newVisited (currentDistance + d) | (neighbor, d) <- neighbors]
+        in concat paths >>= \(path, distance) -> return (current : path, distance)
+
+-- | travelSales :: RoadMap -> Path
+-- | Solves the Traveling Salesman Problem using an adjacency list internally.
+travelSales2 :: RoadMap -> Path
+travelSales2 roadMap = 
+    let adjList = roadMapToAdjList roadMap
+        allCities = map fst adjList
+        startCity = head allCities
+    in tspList adjList allCities [startCity] 0
+
+-- | tspList :: AdjList -> [City] -> Path -> Distance -> Path
+-- | Helper function for TSP using an adjacency list.
+tspList :: AdjList -> [City] -> Path -> Distance -> Path
+tspList _ [] _ _ = []
+tspList adjList cities visited currentDistance 
+    | length visited == length cities =
+        let returnDistance = distanceList adjList (last visited) (head visited)
+        in case returnDistance of
+            Nothing -> []
+            Just d -> visited ++ [head visited]
+    | otherwise = 
+        let unvisited = filter (`notElem` visited) cities
+            paths = [tspList adjList cities (visited ++ [nextCity]) (currentDistance + dist)
+                     | nextCity <- unvisited, 
+                       Just dist <- [distanceList adjList (last visited) nextCity]]
+        in if null paths
+           then []
+           else bestPathList adjList paths
+
+-- | bestPathList :: AdjList -> [Path] -> Path
+-- | Finds the path with the minimum distance from a list of paths using adjacency list.
+bestPathList :: AdjList -> [Path] -> Path
+bestPathList adjList paths = foldl1 shortest paths
+  where
+    shortest a b = if calculateTotalDistanceList adjList a < calculateTotalDistanceList adjList b then a else b
+
+-- | calculateTotalDistanceList :: AdjList -> Path -> Distance
+-- | Calculates the total distance of a path using an adjacency list.
+calculateTotalDistanceList :: AdjList -> Path -> Distance
+calculateTotalDistanceList _ [] = 0
+calculateTotalDistanceList adjList (x:xs) = sumDistances xs x
+  where
+    sumDistances [] _ = 0
+    sumDistances (y:ys) prev = 
+        case distanceList adjList prev y of
+            Nothing -> error "No path between cities."
+            Just d  -> d + sumDistances ys y
+
+
+-- Measure the time taken by a function
+measureTime :: (RoadMap -> City -> City -> (Maybe Int, [Path])) -> RoadMap -> City -> City -> IO ((Maybe Int, [Path]), Double)
+measureTime func roadMap start end = do
+    startTime <- Clock.getCurrentTime
+    let result = func roadMap start end
+    endTime <- Clock.getCurrentTime
+    let timeDiff = Clock.diffUTCTime endTime startTime
+    return (result, realToFrac timeDiff)
+
+
+timeIt :: IO a -> IO (a, Double)
+timeIt action = do
+    start <- Clock.getCurrentTime
+    result <- action
+    end <- Clock.getCurrentTime
+    let diff = Clock.diffUTCTime end start
+    return (result, realToFrac diff)
+
+
+
+
+main :: IO ()
+main = do
+    let startCity = "A"
+    let endCity = "D"
+    
+    -- Timing shortestPath
+    (result1, time1) <- timeIt $ return (shortestPath gTest2 startCity endCity)
+    putStrLn $ "Shortest Path Result: " ++ show result1 ++ " (Time taken: " ++ show time1 ++ " seconds)"
+    
+    -- Timing shortestPath2 (assuming this function is implemented)
+    (result2, time2) <- timeIt $ return (shortestPath2 gTest2 startCity endCity)
+    putStrLn $ "Shortest Path2 Result: " ++ show result2 ++ " (Time taken: " ++ show time2 ++ " seconds)"
+
