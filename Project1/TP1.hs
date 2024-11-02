@@ -2,6 +2,7 @@ import qualified Data.List
 import qualified Data.Array
 import qualified Data.Bits
 
+
 -- PFL 2024/2025 Practical assignment 1
 
 -- Uncomment the some/all of the first three lines to import the modules, do not change the code of these lines.
@@ -26,9 +27,8 @@ type RoadMap = [(City,City,Distance)]
 -- |
 -- | The function extracts all cities (both first and second city in each tuple) and 
 -- | removes duplicates to return a list of distinct city names.
-cities :: [(String, String, a)] -> [String]
+cities :: RoadMap -> [City]
 cities roadMap = Data.List.nub [city | (c1, c2, _) <- roadMap, city <- [c1, c2]]
-
 
 
 -- | areAdjacent :: RoadMap -> City -> City -> Bool
@@ -47,7 +47,6 @@ cities roadMap = Data.List.nub [city | (c1, c2, _) <- roadMap, city <- [c1, c2]]
 areAdjacent :: RoadMap -> City -> City -> Bool
 areAdjacent roadMap city1 city2 = 
     any (\(c1, c2, _) -> (c1 == city1 && c2 == city2) || (c1 == city2 && c2 == city1)) roadMap
-
 
 
 -- | distance :: RoadMap -> City -> City -> Maybe Distance
@@ -116,7 +115,6 @@ pathDistance roadMap (c1:c2:rest_of_the_array) =
         Just d -> fmap (d +) (pathDistance roadMap (c2:rest_of_the_array))
 
 
-
 -- | rome :: RoadMap -> [City]
 -- | This function returns the names of the cities with the highest number of roads 
 -- | connecting to them (i.e., the vertices with the highest degree) in the given road map.
@@ -137,7 +135,6 @@ rome roadMap =
     in  [city | (city, count) <- cityCounts, count == maxCount]
 
 
-
 -- | isStronglyConnected :: RoadMap -> Bool
 -- | This function checks if all the cities in the graph are connected,
 -- | meaning that every city is reachable from every other city.
@@ -154,7 +151,6 @@ isStronglyConnected roadMap =
         startCity = head allCities -- Pick any city to start the search
         reachableCities = dfs roadMap startCity [] 
     in length reachableCities == length allCities
-
 
 
 -- | dfs :: RoadMap -> City -> [City] -> [City]
@@ -175,32 +171,28 @@ dfs roadMap city visited
     | otherwise = foldr (\(adjCity, _) acc -> dfs roadMap adjCity acc) (city : visited) (adjacent roadMap city)
 
 
-
--- | shortestPath :: RoadMap -> City -> City -> (Maybe Int, [Path])
--- | This function finds the shortest path between two cities in a road map.
--- | If the start city is the same as the end city, it returns a distance of 0 and the path containing only that city.
+-- | shortestPath :: RoadMap -> City -> City -> [Path]
+-- | This function finds all shortest paths (in terms of distance) between two cities in a road map.
+-- | If the start city is the same as the end city, it returns a single path with that city.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
--- | start :: City - The starting city for the path.
--- | end :: City - The destination city for the path.
+-- |   - roadMap :: RoadMap - A list of tuples representing the roads between cities.
+-- |   - start :: City - The starting city for the path.
+-- |   - end :: City - The destination city for the path.
 -- |
--- | Returns a tuple containing:
--- | - Just Int: the minimum distance if a path exists.
--- | - [Path]: a list of all shortest paths (each represented as a list of cities).
-shortestPath :: RoadMap -> City -> City -> (Maybe Int, [Path])
+-- | Returns:
+-- |   - [Path]: A list of all shortest paths (each represented as a list of cities).
+shortestPath :: RoadMap -> City -> City -> [Path]
 shortestPath roadMap start end
-    | start == end = (Just 0, [[start]]) 
+    | start == end = [[start]]
     | otherwise =
-        let allPaths = dfsPaths roadMap start end [] 0 
+        let allPaths = dfsPaths roadMap start end [] 0
             distances = map snd allPaths
         in if null distances
-            then (Nothing, [])
-            else 
-                let minDistance = minimum distances
-                    shortestPaths = [path | (path, dist) <- allPaths, dist == minDistance]
-                in (Just minDistance, shortestPaths)
-
+           then []
+           else 
+               let minDistance = minimum distances
+               in [path | (path, dist) <- allPaths, dist == minDistance]
 
 
 -- | dfsPaths :: RoadMap -> City -> City -> [City] -> Int -> [(Path, Int)]
@@ -208,16 +200,17 @@ shortestPath roadMap start end
 -- | It tracks the visited cities and the current distance traveled.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
--- | current :: City - The city currently being explored.
--- | end :: City - The destination city for the path.
--- | visited :: [City] - A list of cities that have already been visited in the current path.
--- | currentDistance :: Int - The distance traveled so far.
+-- |   - roadMap :: RoadMap - A list of tuples representing the roads between cities.
+-- |   - current :: City - The city currently being explored.
+-- |   - end :: City - The destination city for the path.
+-- |   - visited :: [City] - A list of cities that have already been visited in the current path.
+-- |   - currentDistance :: Int - The distance traveled so far.
 -- |
--- | Returns a list of tuples containing each found path and its corresponding distance.
+-- | Returns:
+-- |   - [(Path, Int)]: A list of tuples containing each found path and its corresponding distance.
 dfsPaths :: RoadMap -> City -> City -> [City] -> Int -> [(Path, Int)]
 dfsPaths roadMap current end visited currentDistance
-    | current `elem` visited = []
+    | current `elem` visited = []  -- Avoid revisiting cities
     | current == end = [([end], currentDistance)]
     | otherwise =
         let newVisited = current : visited
@@ -226,61 +219,68 @@ dfsPaths roadMap current end visited currentDistance
         in concat paths >>= \(path, distance) -> return (current : path, distance)
 
 
-
--- | travelSales :: RoadMap -> Path
--- | This function solves the Traveling Salesman Problem (TSP) for a given road map.
--- | It finds a path that visits all cities exactly once and returns to the starting city.
+-- | travelSales :: RoadMap -> IO Path
+-- | This function finds the best path for traveling sales from a specified starting city.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
+-- |   - roadMap: A list of tuples representing the roads between cities, where each tuple 
+-- |     consists of two cities and the distance between them.
 -- |
--- | Returns a path that represents a solution to the TSP.
+-- | Returns an IO action that produces the best path found or raises an error if the 
+-- | starting city is not valid or no valid paths are found.
 travelSales :: RoadMap -> Path
 travelSales roadMap = 
-    let allCities = cities roadMap
-        startCity = head allCities
-    in tsp roadMap allCities [startCity] 0
+    let startCity = "0"  -- Specify the start city as "0"
+        allCities = cities roadMap
+    in if startCity `elem` allCities
+       then let paths = tsp roadMap allCities [startCity] 0
+                bestPathResult = bestPath roadMap paths
+            in if null bestPathResult 
+               then error "No valid paths found."
+               else bestPathResult
+       else error "Start city not in the list of cities."
 
 
-
--- | tsp :: RoadMap -> [City] -> Path -> Distance -> Path
--- | This helper function performs a recursive search to find a valid path for the TSP.
--- | It builds paths by exploring unvisited cities and calculating the current distance.
+-- | tsp :: RoadMap -> [City] -> Path -> Distance -> [Path]
+-- | This function finds all possible paths for the Traveling Salesman Problem (TSP).
+-- | It uses recursion to explore all permutations of cities, calculating the total distance
+-- | for each completed path.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
--- | cities :: [City] - A list of all cities that need to be visited.
--- | visited :: Path - A list of cities that have already been visited in the current path.
--- | currentDistance :: Distance - The total distance traveled so far.
+-- |   - roadMap: A list of tuples representing the roads between cities.
+-- |   - cities: A list of cities to visit.
+-- |   - visited: A list of cities that have already been visited.
+-- |   - currentDistance: The current distance traveled so far.
 -- |
--- | Returns a path that visits all cities exactly once and returns to the starting city.
-tsp :: RoadMap -> [City] -> Path -> Distance -> Path
-tsp _ [] _ _ = []
-tsp roadMap cities visited currentDistance 
+-- | Returns a list of completed paths that visit all cities and return to the starting city.
+tsp :: RoadMap -> [City] -> Path -> Distance -> [Path]
+tsp _ [] _ _ = []  -- No cities left to visit
+tsp roadMap cities visited currentDistance
     | length visited == length cities = 
         let returnDistance = distance roadMap (last visited) (head visited)
         in case returnDistance of
             Nothing -> []
-            Just d -> visited ++ [head visited]
+            Just d -> 
+                let totalCost = currentDistance + d
+                    completedPath = visited ++ [head visited]
+                in completedPath : []
     | otherwise = 
         let unvisited = filter (`notElem` visited) cities
-            paths = [tsp roadMap cities (visited ++ [nextCity]) (currentDistance + dist)
-                     | nextCity <- unvisited, 
-                       Just dist <- [distance roadMap (last visited) nextCity]]
-        in if null paths
-           then []
-           else bestPath roadMap paths
-
+        in if null unvisited 
+           then [] 
+           else concat [tsp roadMap cities (visited ++ [nextCity]) (currentDistance + dist)
+                        | nextCity <- unvisited, 
+                          Just dist <- [distance roadMap (last visited) nextCity]]
 
 
 -- | bestPath :: RoadMap -> [Path] -> Path
--- | This function finds the path with the minimum total distance from a list of possible paths.
+-- | This function finds the minimum cost path from a list of paths.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
--- | paths :: [Path] - A list of possible paths to evaluate.
+-- |   - roadMap: A list of tuples representing the roads between cities.
+-- |   - paths: A list of all possible paths.
 -- |
--- | Returns the path with the lowest total distance.
+-- | Returns the path with the smallest total distance. If no paths are given, it returns an empty list.
 bestPath :: RoadMap -> [Path] -> Path
 bestPath _ [] = []
 bestPath roadMap paths = foldl1 shortest paths
@@ -288,15 +288,14 @@ bestPath roadMap paths = foldl1 shortest paths
     shortest a b = if calculateTotalDistance roadMap a < calculateTotalDistance roadMap b then a else b
 
 
-
 -- | calculateTotalDistance :: RoadMap -> Path -> Distance
--- | This function calculates the total distance of a given path through a series of cities.
+-- | This function calculates the total distance of a given path.
 -- |
 -- | Arguments:
--- | roadMap :: RoadMap - A list of tuples representing the roads between cities.
--- | path :: Path - A list of cities representing the path for which the total distance is calculated.
+-- |   - roadMap: A list of tuples representing the roads between cities.
+-- |   - path: A list of cities representing the path to evaluate.
 -- |
--- | Returns the total distance of the path.
+-- | Returns the total distance traveled along the path. If the path is empty, it returns 0.
 calculateTotalDistance :: RoadMap -> Path -> Distance
 calculateTotalDistance _ [] = 0
 calculateTotalDistance roadMap (x:xs) = sumDistances xs x
